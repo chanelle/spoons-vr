@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import * as G from './game.js';
 import * as A from './art.js';
 import { sfx, unlockAudio } from './audio.js';
+import { RoomEnvironment } from '../vendor/RoomEnvironment.js';
 
 const V = THREE.Vector3;
 const tmp = new V(), tmp2 = new V();
@@ -17,16 +18,26 @@ renderer.xr.setReferenceSpaceType('local-floor');
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const BG = new THREE.Color(0x24211c);
-scene.background = BG;
-const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.01, 30);
-const DESK_CAM = { pos: new V(0, 1.38, 0.42), look: new V(0, 1.02, -0.36) };
-camera.position.copy(DESK_CAM.pos);
-camera.lookAt(DESK_CAM.look);
-scene.add(new THREE.HemisphereLight(0xfff4e0, 0x403a30, 1.7));
-const sun = new THREE.DirectionalLight(0xffffff, 1.6);
-sun.position.set(0.4, 2.5, 0.6);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.95;
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.01, 30);
+scene.add(new THREE.HemisphereLight(0xd6d0ff, 0x140c28, 0.7));
+const sun = new THREE.DirectionalLight(0xfff4ea, 1.3);
+sun.position.set(0.4, 2.5, 0.8);
 scene.add(sun);
+const rim = new THREE.PointLight(0x8f6bff, 1.2, 3);
+rim.position.set(0, 1.0, -1.0);
+scene.add(rim);
+
+// Sky: aurora, floor grid and stars. Hidden in passthrough so the real room shows.
+const sky = new THREE.Group();
+const aurora = A.makeAurora();
+const floorGrid = A.makeFloorGrid();
+floorGrid.position.y = 0.002;
+sky.add(aurora, floorGrid, A.makeStars());
+scene.add(sky);
 
 // Everything lives in `root`, positioned at the player's eyes. Seated, two-foot radius.
 const root = new THREE.Group();
@@ -34,14 +45,27 @@ const DESK_ROOT = new V(0, 1.2, 0);
 root.position.copy(DESK_ROOT);
 scene.add(root);
 
+// Two layouts. "wide" is the headset and landscape layout: everything within ~60 cm.
+// "tall" stacks things for portrait phones and narrow windows.
+const LAYOUTS = {
+  wide: {
+    tray: [0, -0.36, -0.36], slots: [[-0.235, -0.1, -0.47], [0, -0.06, -0.5], [0.235, -0.1, -0.47]],
+    shelf: [-0.43, -0.31, -0.3], bowl: [0.43, -0.34, -0.3], pillow: [0.27, -0.36, -0.19], jar: [-0.27, -0.39, -0.19],
+    hud: [0, 0.17, -0.62], big: [0, 0.0, -0.53], orbY: -0.17, orbGap: 0.14, shelfRot: 0.6, cardScale: 1,
+    labels: { shelf: [0, 0.15, 0], bowl: [0, 0.09, 0], pillow: [0, -0.06, 0.03], jar: [0, 0.125, 0] },
+    view: { c: [0, -0.17, -0.4], hw: 0.6, hh: 0.41 },
+  },
+  tall: {
+    tray: [0, -0.34, -0.4], slots: [[0, 0.13, -0.52], [0, -0.045, -0.51], [0, -0.22, -0.5]],
+    shelf: [-0.13, -0.57, -0.38], bowl: [0.13, -0.58, -0.38], pillow: [0.13, -0.76, -0.33], jar: [-0.13, -0.78, -0.33],
+    hud: [0, 0.27, -0.6], big: [0, 0.0, -0.53], orbY: -0.2, orbGap: 0.13, shelfRot: 0.2, cardScale: 1.3,
+    labels: { shelf: [0, 0.15, 0], bowl: [0, 0.09, 0], pillow: [0, 0.085, 0], jar: [0, 0.125, 0] },
+    view: { c: [0, -0.25, -0.45], hw: 0.27, hh: 0.58 },
+  },
+};
 const L = {
-  tray: new V(0, -0.36, -0.36),
-  slots: [new V(-0.235, -0.1, -0.47), new V(0, -0.06, -0.5), new V(0.235, -0.1, -0.47)],
-  shelf: new V(-0.43, -0.31, -0.3),
-  bowl: new V(0.43, -0.34, -0.3),
-  pillow: new V(0.27, -0.36, -0.19),
-  jar: new V(-0.27, -0.39, -0.19),
-  hud: new V(0, 0.17, -0.62),
+  tray: new V(), slots: [new V(), new V(), new V()], shelf: new V(), bowl: new V(),
+  pillow: new V(), jar: new V(), hud: new V(), big: new V(), orbY: -0.17, orbGap: 0.14, cardScale: 1, name: '',
 };
 
 // In XR the viewer is at root's origin; on desktop it's the camera.
@@ -60,28 +84,61 @@ function unreg(e) { const i = grabs.indexOf(e); if (i >= 0) grabs.splice(i, 1); 
 const PICKABLE = new Set(['spoon', 'card', 'pillow', 'jar', 'orb']);
 
 // ---------- static furniture ----------
-const tray = A.makeTray(); tray.position.copy(L.tray); root.add(tray);
-
-const shelf = A.makeShelf(); shelf.position.copy(L.shelf); shelf.rotation.y = 0.6; root.add(shelf);
+const tray = A.makeTray(); root.add(tray);
+const shelf = A.makeShelf(); root.add(shelf);
 reg('zone-tomorrow', shelf, 'shelf', 0.16);
-const shelfLabel = A.makeLabel('TOMORROW', 0.16); shelfLabel.position.copy(L.shelf).add(new V(0, 0.14, 0)); root.add(shelfLabel);
-
-const bowl = A.makeBowl(); bowl.position.copy(L.bowl); root.add(bowl);
+const shelfLabel = A.makeLabel('TOMORROW', 0.16, A.C.green); root.add(shelfLabel);
+const bowl = A.makeBowl(); root.add(bowl);
 reg('zone-letgo', bowl, 'bowl', 0.16);
-const bowlLabel = A.makeLabel('LET GO', 0.14); bowlLabel.position.copy(L.bowl).add(new V(0, 0.12, 0)); root.add(bowlLabel);
-
-const pillow = A.makePillow(); pillow.position.copy(L.pillow); root.add(pillow);
+const bowlLabel = A.makeLabel('LET GO', 0.13, A.C.tan); root.add(bowlLabel);
+const pillow = A.makePillow(); root.add(pillow);
 const pillowE = reg('pillow', pillow, 'pillow', 0.09);
-const ring = A.makeRing(); ring.position.copy(L.pillow).add(new V(0, 0.032, 0)); root.add(ring);
-const pillowLabel = A.makeLabel('HOLD TO REST', 0.15); pillowLabel.position.copy(L.pillow).add(new V(0, 0.09, 0)); root.add(pillowLabel);
-
-const jar = A.makeJar(); jar.position.copy(L.jar); root.add(jar);
+const ring = A.makeRing(); root.add(ring);
+const pillowLabel = A.makeLabel('HOLD TO REST', 0.16, A.C.lavender); root.add(pillowLabel);
+const jar = A.makeJar(); root.add(jar);
 reg('jar', jar, 'jar', 0.07);
-const jarLabel = A.makeLabel('BORROW', 0.13, '#e2b35a'); jarLabel.position.copy(L.jar).add(new V(0, 0.13, 0)); root.add(jarLabel);
+const jarLabel = A.makeLabel('BORROW', 0.13, A.C.amber); root.add(jarLabel);
+const hud = new A.Panel(0.4, 0.075, 1024); root.add(hud.mesh);
+const big = new A.Panel(0.46, 0.27, 1024); root.add(big.mesh);
 
-const hud = new A.Panel(0.4, 0.075, 1024); hud.mesh.position.copy(L.hud); root.add(hud.mesh);
-const big = new A.Panel(0.46, 0.27, 1024); big.mesh.position.set(0, -0.01, -0.52); root.add(big.mesh);
-for (const m of [shelfLabel, bowlLabel, pillowLabel, jarLabel, hud.mesh, big.mesh]) faceHead(m);
+function applyLayout(name, force = false) {
+  if (L.name === name && !force) return;
+  const cfg = LAYOUTS[name];
+  L.name = name;
+  for (const k of ['tray', 'shelf', 'bowl', 'pillow', 'jar', 'hud', 'big']) L[k].fromArray(cfg[k]);
+  cfg.slots.forEach((a, i) => L.slots[i].fromArray(a));
+  L.orbY = cfg.orbY; L.orbGap = cfg.orbGap; L.cardScale = cfg.cardScale * (renderer.xr.isPresenting || name === 'tall' ? 1 : 1.2);
+  const lo = (k) => new V().fromArray(cfg.labels[k]);
+  tray.position.copy(L.tray);
+  shelf.position.copy(L.shelf); shelf.rotation.y = name === 'wide' ? cfg.shelfRot : cfg.shelfRot;
+  shelfLabel.position.copy(L.shelf).add(lo('shelf'));
+  bowl.position.copy(L.bowl); bowlLabel.position.copy(L.bowl).add(lo('bowl'));
+  pillow.position.copy(L.pillow); ring.position.copy(L.pillow).add(new V(0, 0.032, 0));
+  pillowLabel.position.copy(L.pillow).add(lo('pillow'));
+  jar.position.copy(L.jar); jarLabel.position.copy(L.jar).add(lo('jar'));
+  hud.mesh.position.copy(L.hud);
+  big.mesh.position.copy(L.big);
+  for (const v of cardViews.values()) { v.home.copy(L.slots[v.slot]); v.m.scale.setScalar(L.cardScale); }
+  orbs.forEach((o) => { o.mesh.position.set(o.idx * L.orbGap, L.orbY, -0.44); o.label.position.set(o.idx * L.orbGap, L.orbY - 0.055, -0.44); });
+  tomorrowPile.forEach((m, i) => m.position.copy(L.shelf).add(new V(0, 0.035 + i * 0.012, 0.01)));
+  if (s) layoutTray();
+}
+
+// Frame the whole table for any window shape (desktop and phones).
+function fitCamera() {
+  if (renderer.xr.isPresenting) return;
+  const aspect = innerWidth / innerHeight;
+  applyLayout(aspect < 0.85 ? 'tall' : 'wide');
+  const v = LAYOUTS[L.name].view;
+  const f = THREE.MathUtils.degToRad(camera.fov / 2);
+  const d = Math.max(v.hh / Math.tan(f), v.hw / (Math.tan(f) * aspect)) * 1.05 + 0.08;
+  const tilt = 0.36;
+  const c = root.localToWorld(new V().fromArray(v.c));
+  camera.aspect = aspect;
+  camera.updateProjectionMatrix();
+  camera.position.copy(c).add(new V(0, Math.sin(tilt) * d, Math.cos(tilt) * d));
+  camera.lookAt(c);
+}
 
 // ---------- game state ----------
 let s = null; // game.js state
@@ -101,7 +158,8 @@ function say(text, secs = 3.5) { toast = { text, until: now + secs }; }
 
 // ---------- orbs (menus) ----------
 function clearOrbs() { for (const o of orbs) { root.remove(o.mesh, o.label); unreg(o.e); } orbs.length = 0; }
-function addOrb(color, label, x, y, action) {
+function addOrb(color, label, idx, action) {
+  const x = idx * L.orbGap, y = L.orbY;
   const mesh = A.makeOrb(color);
   mesh.position.set(x, y, -0.44);
   root.add(mesh);
@@ -111,7 +169,7 @@ function addOrb(color, label, x, y, action) {
   root.add(lbl);
   const e = reg('orb', mesh, label, 0.06);
   e.action = action;
-  orbs.push({ mesh, label: lbl, e });
+  orbs.push({ mesh, label: lbl, e, idx });
 }
 
 function showRead() {
@@ -122,12 +180,11 @@ function showRead() {
     { text: 'Good morning.', size: 64, weight: 600, serif: true, gap: 10 },
     { text: "How's your body today? Pinch one.", size: 42 },
     ...(pendingPrev && pendingPrev.borrowed ? [{ text: `You borrowed ${pendingPrev.borrowed} yesterday. You start ${pendingPrev.borrowed * G.BORROW_INTEREST} short.`, size: 34, color: A.C.must }] : []),
-    ...(pendingPrev && pendingPrev.tomorrow.length ? [{ text: `${pendingPrev.tomorrow.length} thing${pendingPrev.tomorrow.length === 1 ? ' is' : 's are'} waiting from yesterday.`, size: 34, color: A.C.olive }] : []),
+    ...(pendingPrev && pendingPrev.tomorrow.length ? [{ text: `${pendingPrev.tomorrow.length} thing${pendingPrev.tomorrow.length === 1 ? ' is' : 's are'} waiting from yesterday.`, size: 34, color: A.C.mint }] : []),
   ]);
-  big.mesh.position.set(0, 0.02, -0.54);
-  addOrb(0x7f9a4b, 'GOOD-ISH', -0.14, -0.17, () => startDay('green'));
-  addOrb(0xd9a441, 'CAREFUL', 0, -0.17, () => startDay('yellow'));
-  addOrb(0xb5573b, 'FLARE', 0.14, -0.17, () => startDay('red'));
+  addOrb(0x4be38a, 'GOOD-ISH', -1, () => startDay('green'));
+  addOrb(0xffb03a, 'CAREFUL', 0, () => startDay('yellow'));
+  addOrb(0xff4f5e, 'FLARE', 1, () => startDay('red'));
 }
 
 function startDay(read) {
@@ -143,7 +200,7 @@ function startDay(read) {
   for (const sp of s.spoons) addSpoon(sp, L.tray.clone().add(new V(0, 0.25, 0)));
   layoutTray();
   mode = 'play';
-  document.body.classList.add('playing');
+  document.dispatchEvent(new Event('spoons:start'));
   say(`${G.READS[read].label}. ${s.spoons.length} spoons. Spend them well.`, 4);
   sfx.done();
 }
@@ -151,18 +208,17 @@ function startDay(read) {
 function showEnd(sum) {
   mode = 'end';
   big.mesh.visible = true;
-  big.mesh.position.set(0, 0.0, -0.53);
   const lines = [
     { text: '10:00 PM. The day is over.', size: 54, weight: 600, serif: true, gap: 8 },
     { text: `Done ${sum.done}  ·  Tomorrow ${sum.tomorrow}  ·  Missed ${sum.missed}  ·  Let go ${sum.dropped}`, size: 36 },
     { text: `Joy ${sum.joy}  ·  Rested ${sum.rested}x${sum.borrowed ? `  ·  Borrowed ${sum.borrowed} (owe ${sum.owed})` : ''}`, size: 36, gap: 8 },
     ...sum.consequences.slice(0, 3).map((t) => ({ text: t, size: 32, color: A.C.must })),
-    { text: sum.selah, size: 38, italic: true, serif: true, color: A.C.olive },
+    { text: sum.selah, size: 38, italic: true, serif: true, color: A.C.mint },
   ];
   A.drawText(big, lines);
   const prev = s;
-  addOrb(0x6b6f3a, 'NEXT MORNING', -0.09, -0.2, () => { pendingPrev = prev; showRead(); });
-  addOrb(0xa99bc4, 'REPLAY TODAY', 0.09, -0.2, () => { pendingPrev = null; replaySeed = prev.seed; showRead(); });
+  addOrb(0x5fe3b0, 'NEXT MORNING', -0.65, () => { pendingPrev = prev; showRead(); });
+  addOrb(0xa98bff, 'REPLAY TODAY', 0.65, () => { pendingPrev = null; replaySeed = prev.seed; showRead(); });
 }
 
 // ---------- spoons ----------
@@ -194,6 +250,7 @@ function addCard(d) {
   const m = p.mesh;
   root.add(m);
   m.position.copy(L.slots[slot]).add(new V(0, 0.22, 0));
+  m.scale.setScalar(L.cardScale);
   faceHead(m);
   const e = reg('card', m, d.id, 0.11);
   cardViews.set(d.id, { p, m, e, slot, home: L.slots[slot].clone(), held: false });
@@ -308,11 +365,11 @@ function updateXRPointers() {
 }
 
 // Mouse/touch: lets judges and the emulator play on desktop too.
-const mouse = { ndc: new THREE.Vector2(), down: false, inside: false };
+const mouse = { ndc: new THREE.Vector2(), down: false, edge: false, inside: false };
 const ray = new THREE.Raycaster();
 const dragPlane = new THREE.Plane();
 renderer.domElement.addEventListener('pointermove', (e) => { mouse.ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); mouse.inside = true; });
-renderer.domElement.addEventListener('pointerdown', (e) => { unlockAudio(); mouse.ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); mouse.down = true; mouse.inside = true; });
+renderer.domElement.addEventListener('pointerdown', (e) => { unlockAudio(); mouse.ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); mouse.down = true; mouse.edge = true; mouse.inside = true; });
 addEventListener('pointerup', () => { mouse.down = false; });
 
 function rayHits(exclude) {
@@ -334,7 +391,8 @@ function updateMousePointer() {
     p.hover = hit ? hit.e : null;
     if (hit) p.pos.copy(hit.point);
   }
-  p.pinch = mouse.down;
+  p.pinch = mouse.down || mouse.edge; // a quick click between frames still counts
+  mouse.edge = false;
 }
 
 function nearest(pos, types, exclude) {
@@ -413,16 +471,19 @@ async function setupXR() {
       session.addEventListener('visibilitychange', () => { paused = session.visibilityState !== 'visible'; });
       session.addEventListener('end', onSessionEnd);
       await renderer.xr.setSession(session);
-      if (xrMode === 'immersive-ar') { scene.background = null; renderer.setClearColor(0x000000, 0); }
+      applyLayout('wide', true);
+      if (xrMode === 'immersive-ar') { sky.visible = false; renderer.setClearColor(0x000000, 0); }
       needsRecenter = true; xrFrames = 0;
       document.body.classList.add('in-xr');
     } catch (err) { console.warn('[SPOONS] XR failed', err); btn.textContent = 'Could not start XR. Desktop mode is on.'; }
   };
 }
 function onSessionEnd() {
-  scene.background = BG;
+  sky.visible = true;
   root.position.copy(DESK_ROOT);
   root.rotation.set(0, 0, 0);
+  L.name = '';
+  fitCamera();
   paused = false;
   document.body.classList.remove('in-xr');
 }
@@ -458,7 +519,7 @@ renderer.setAnimationLoop(() => {
     handle(G.step(s, dt));
     const resting = [...pointers.values()].some((p) => p.held === pillowE && p.pinch);
     if (resting && mode === 'play') { handle(G.rest(s, dt)); A.setRing(ring, s.restProgress / G.REST_SECONDS); }
-    pillow.scale.y += ((resting ? 0.32 : 0.45) - pillow.scale.y) * Math.min(1, dt * 10);
+    pillow.scale.y += ((resting ? 0.7 : 1) - pillow.scale.y) * Math.min(1, dt * 10);
   }
 
   // held objects follow the hand; everything else eases home
@@ -496,12 +557,13 @@ renderer.setAnimationLoop(() => {
   // hover feedback
   for (const e of grabs) if (PICKABLE.has(e.type) && e.type !== 'card') {
     const near = [...pointers.values()].some((p) => p.active && !p.held && (p.kind === 'mouse' ? p.hover === e : e.obj.getWorldPosition(tmp).distanceTo(p.pos) < e.radius));
-    const base = e.type === 'pillow' ? 1.3 : 1;
+    const base = e.type === 'spoon' ? 1.3 : 1;
     const target = near ? base * 1.12 : base;
     e.obj.scale.x += (target - e.obj.scale.x) * k;
-    if (e.type !== 'pillow') e.obj.scale.setScalar(e.obj.scale.x);
+    if (e.type === 'pillow') e.obj.scale.z = e.obj.scale.x; else e.obj.scale.setScalar(e.obj.scale.x);
   }
-  for (const o of orbs) o.mesh.position.y += Math.sin(now * 2 + o.mesh.position.x * 20) * 0.00012;
+  for (const o of orbs) o.mesh.position.y = L.orbY + Math.sin(now * 2 + o.idx * 2) * 0.004;
+  aurora.userData.update(now);
   root.traverse((o) => { if (o.userData.label || o === hud.mesh || o === big.mesh) faceHead(o); });
 
   // HUD
@@ -511,9 +573,10 @@ renderer.setAnimationLoop(() => {
     const lines = [];
     if (mode === 'play') {
       lines.push({ text: `${G.clock(s)}   ·   ${G.usableSpoons(s)} spoon${G.usableSpoons(s) === 1 ? '' : 's'} usable${s.spoons.length > G.usableSpoons(s) ? `, ${s.spoons.length - G.usableSpoons(s)} bent` : ''}${paused ? '   ·   paused' : ''}`, size: 46, weight: 600 });
-    } else if (mode === 'read') lines.push({ text: 'SPOONS', size: 56, weight: 800, color: A.C.olive });
-    else lines.push({ text: 'SPOONS', size: 56, weight: 800, color: A.C.olive });
-    if (toast.until > now) lines.push({ text: toast.text, size: 38, color: A.C.olive });
+    } else if (mode === 'read') lines.push({ text: 'SPOONS', size: 56, weight: 800, color: A.C.mint });
+    else lines.push({ text: 'SPOONS', size: 56, weight: 800, color: A.C.mint });
+    if (toast.until > now) lines.push({ text: toast.text, size: 38, color: A.C.mint });
+    hud.mesh.visible = mode === 'play' || toast.until > now;
     A.drawText(hud, lines);
   }
 
@@ -521,13 +584,13 @@ renderer.setAnimationLoop(() => {
 });
 
 addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight;
-  camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+  fitCamera();
 });
 document.addEventListener('visibilitychange', () => { if (!renderer.xr.isPresenting) paused = document.hidden; });
 
+fitCamera();
 showRead();
 
 // test hook (used by the headless smoke test)
-window.__spoons = { get s() { return s; }, get mode() { return mode; }, G, startDay, handle, grabs, camera, root };
+window.__spoons = { get s() { return s; }, get mode() { return mode; }, G, startDay, handle, grabs, camera, root, pointers, scene, sky, renderer };

@@ -5,11 +5,12 @@ import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
 const url = process.argv[2] || 'http://127.0.0.1:8765/';
 const out = process.argv[3] || '.';
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
-const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+const page = await browser.newPage({ viewport: { width: 960, height: 600 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 await page.goto(url);
+const frames = (n = 2) => page.evaluate((n) => new Promise((r) => { let k = 0; const f = () => (++k >= n ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); }), n);
 await page.waitForFunction(() => window.__spoons, null, { timeout: 15000 });
 await page.waitForTimeout(800);
 await page.screenshot({ path: `${out}/01-morning.png` });
@@ -22,12 +23,12 @@ const screenOf = (pred) => page.evaluate((src) => {
   return { x: (v.x + 1) / 2 * innerWidth, y: (1 - v.y) / 2 * innerHeight, id: e.id };
 }, pred.toString());
 const drag = async (a, b) => {
-  await page.mouse.move(a.x, a.y); await page.waitForTimeout(60);
-  await page.mouse.down(); await page.waitForTimeout(60);
-  for (let i = 1; i <= 12; i++) { await page.mouse.move(a.x + (b.x - a.x) * i / 12, a.y + (b.y - a.y) * i / 12); await page.waitForTimeout(25); }
-  await page.waitForTimeout(80); await page.mouse.up(); await page.waitForTimeout(200);
+  await page.mouse.move(a.x, a.y); await frames(2);
+  await page.mouse.down(); await frames(2);
+  for (let i = 1; i <= 4; i++) { await page.mouse.move(a.x + (b.x - a.x) * i / 4, a.y + (b.y - a.y) * i / 4); await frames(1); }
+  await frames(2); await page.mouse.up(); await frames(3);
 };
-const click = async (a) => { await page.mouse.move(a.x, a.y); await page.waitForTimeout(60); await page.mouse.down(); await page.waitForTimeout(80); await page.mouse.up(); await page.waitForTimeout(200); };
+const click = async (a) => { await page.mouse.move(a.x, a.y); await frames(2); await page.mouse.down(); await frames(2); await page.mouse.up(); await frames(3); };
 
 const orb = await screenOf((e) => e.type === 'orb' && e.id === 'CAREFUL');
 await click(orb);
@@ -63,7 +64,7 @@ await page.evaluate(() => { const S = window.__spoons; S.s.flareTimes.unshift(S.
 await page.waitForTimeout(700);
 await page.screenshot({ path: `${out}/04-flare.png` });
 const pil = await screenOf((e) => e.type === 'pillow');
-await page.mouse.move(pil.x, pil.y); await page.waitForTimeout(80); await page.mouse.down();
+await page.mouse.move(pil.x, pil.y); await frames(2); await page.mouse.down(); await frames(2);
 await page.waitForTimeout(3200);
 await page.screenshot({ path: `${out}/05-resting.png` });
 await page.waitForTimeout(3300);

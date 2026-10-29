@@ -8,19 +8,20 @@ fs.mkdirSync(`${out}/frames`, { recursive: true });
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 960, height: 600 } });
 await page.goto(url);
+const frames = (n = 2) => page.evaluate((n) => new Promise((r) => { let k = 0; const f = () => (++k >= n ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); }), n);
 await page.waitForFunction(() => window.__spoons);
 await page.addStyleTag({ content: '#card{display:none!important}' });
 await page.waitForTimeout(600);
 
 let n = 0;
-const snap = async (k = 1) => { for (let i = 0; i < k; i++) { await page.screenshot({ path: `${out}/frames/f${String(n++).padStart(4, '0')}.png` }); } };
+const snap = async (k = 1) => { for (let i = 0; i < k; i++) { await frames(1); await page.screenshot({ path: `${out}/frames/f${String(n++).padStart(4, '0')}.png` }); } };
 const at = (pred) => page.evaluate((src) => {
   const S = window.__spoons; const f = eval(src); const e = S.grabs.find(f); if (!e) return null;
   const v = e.obj.getWorldPosition(new e.obj.position.constructor()).project(S.camera);
   return { x: (v.x + 1) / 2 * innerWidth, y: (1 - v.y) / 2 * innerHeight };
 }, pred.toString());
-const drag = async (a, b, steps = 10) => {
-  await page.mouse.move(a.x, a.y); await page.mouse.down(); await snap();
+const drag = async (a, b, steps = 6) => {
+  await page.mouse.move(a.x, a.y); await frames(2); await page.mouse.down(); await snap(2);
   for (let i = 1; i <= steps; i++) { await page.mouse.move(a.x + (b.x - a.x) * i / steps, a.y + (b.y - a.y) * i / steps); await snap(); }
   await page.mouse.up(); await snap(4);
 };
@@ -28,7 +29,7 @@ const drag = async (a, b, steps = 10) => {
 await page.screenshot({ path: `${out}/morning.png` });
 await snap(6);
 const orb = await at((e) => e.type === 'orb' && e.id === 'CAREFUL');
-await page.mouse.move(orb.x, orb.y); await page.mouse.down(); await page.mouse.up();
+await page.mouse.move(orb.x, orb.y); await frames(2); await page.mouse.down(); await frames(2); await page.mouse.up(); await frames(2);
 await snap(8);
 await page.evaluate(() => { const S = window.__spoons; S.handle(S.G.step(S.s, 14)); });
 await snap(8);
@@ -54,7 +55,7 @@ await snap(10);
 await page.screenshot({ path: `${out}/flare.png` });
 // rest
 const pil = await at((e) => e.type === 'pillow');
-await page.mouse.move(pil.x, pil.y); await page.mouse.down();
+await page.mouse.move(pil.x, pil.y); await frames(2); await page.mouse.down();
 for (let i = 0; i < 30; i++) { await snap(); await page.waitForTimeout(200); }
 await page.mouse.up();
 await snap(4);

@@ -6,29 +6,42 @@
   <title>SPOONS</title>
   <meta name="description" content="A seated, hands-first game about spending your energy. Spoon theory you can hold.">
   <style>
-    :root { --cream:#f3eee3; --ink:#2b2a26; --olive:#6b6f3a; --amber:#d9a441; }
-    html, body { margin:0; height:100%; background:#24211c; overflow:hidden; font-family: system-ui, sans-serif; }
+    /* Dark spatial game world: full-bleed canvas, one frosted glass card that collapses while you play. */
+    :root { --ink:#f4f2ff; --dim:#bdb8dc; --glass:rgba(22,20,44,.58); --edge:rgba(225,230,255,.22);
+      --mint:#5fe3b0; --mint-ink:#062a1d; --ground:#07061a; color-scheme: dark; }
+    html, body { margin:0; height:100%; background:var(--ground); overflow:hidden; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color:var(--ink); }
     canvas { display:block; touch-action:none; }
-    #card { position:fixed; left:16px; top:16px; max-width:340px; background:rgba(243,238,227,.94); color:var(--ink);
-      border-radius:16px; padding:16px 18px; box-shadow:0 8px 30px rgba(0,0,0,.35); }
-    #card h1 { margin:0 0 4px; font: 800 26px system-ui; color:var(--olive); letter-spacing:.06em; }
-    #card p { margin:6px 0; font-size:14px; line-height:1.4; }
-    #card ul { margin:6px 0 10px; padding-left:18px; font-size:13px; line-height:1.45; }
-    #enter { width:100%; padding:12px; border:0; border-radius:10px; background:var(--olive); color:var(--cream);
-      font: 700 15px system-ui; cursor:pointer; }
-    #enter:disabled { background:#9a9a86; cursor:default; }
-    #credit { font-size:11px; opacity:.7; }
+    #card { position:fixed; left:max(16px, calc(env(safe-area-inset-left, 0px) + 16px)); top:calc(env(safe-area-inset-top, 0px) + 16px);
+      width:min(340px, calc(100vw - 32px)); box-sizing:border-box; background:var(--glass); border:1px solid var(--edge); border-radius:20px;
+      padding:16px 18px; backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%);
+      box-shadow: 0 10px 40px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.12); }
+    #card header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    #card h1 { margin:0; font: 800 22px/1.1 system-ui, sans-serif; letter-spacing:.14em; }
+    #toggle { width:32px; height:32px; border-radius:50%; border:1px solid var(--edge); background:rgba(255,255,255,.06); color:var(--ink); font:700 15px system-ui; cursor:pointer; }
+    #card .body { display:grid; gap:10px; margin-top:10px; }
+    #card p { margin:0; font-size:14px; line-height:1.45; color:var(--dim); }
+    #card ul { margin:0; padding-left:18px; font-size:13.5px; line-height:1.6; }
+    #card b { color:var(--ink); }
+    #enter { width:100%; padding:12px 14px; border:0; border-radius:999px; background:var(--mint); color:var(--mint-ink);
+      font: 700 15px system-ui; cursor:pointer; box-shadow: 0 0 24px rgba(95,227,176,.35); }
+    #enter:disabled { background:rgba(255,255,255,.1); color:var(--dim); box-shadow:none; cursor:default; }
+    #enter:focus-visible, #toggle:focus-visible { outline: 3px solid var(--mint); outline-offset: 2px; }
+    #credit { font-size:11.5px !important; opacity:.75; }
     body.in-xr #card { display:none; }
-    body.playing #card p, body.playing #card ul { display:none; }
-    body.playing #card { padding:10px 14px; max-width:260px; }
-    body.playing #card h1 { font-size:18px; }
-    @media (max-width: 520px) { #card { right:16px; max-width:none; } }
+    #card.collapsed .body { display:none; }
+    @media (max-width: 600px), (max-aspect-ratio: 85/100) {
+      #card { top:auto; left:max(12px, calc(env(safe-area-inset-left, 0px) + 12px)); right:max(12px, calc(env(safe-area-inset-right, 0px) + 12px));
+        bottom:calc(env(safe-area-inset-bottom, 0px) + 12px); width:auto; padding:12px 16px; }
+      #card h1 { font-size:18px; }
+    }
+    @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
   </style>
   <script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
 </head>
 <body>
   <div id="card">
-    <h1>SPOONS</h1>
+    <header><h1>SPOONS</h1><button id="toggle" type="button" aria-expanded="true" aria-controls="cardbody" title="Show or hide how to play">–</button></header>
+    <div class="body" id="cardbody">
     <p>You get a tray of spoons each morning. Everything costs some. Spend them, save them, or borrow from tomorrow.</p>
     <ul>
       <li>Pinch a spoon, drop it on a task to pay.</li>
@@ -38,7 +51,15 @@
     </ul>
     <button id="enter" disabled>Checking for XR…</button>
     <p id="credit">Spoon theory by Christine Miserandino. Built by Chanelle Henry.</p>
+    </div>
   </div>
+  <script>
+    (function(){ var c=document.getElementById('card'), t=document.getElementById('toggle');
+      function set(open){ c.classList.toggle('collapsed', !open); t.textContent = open ? '–' : '?'; t.setAttribute('aria-expanded', open); }
+      t.addEventListener('click', function(){ set(c.classList.contains('collapsed')); });
+      document.addEventListener('spoons:start', function(){ set(false); });
+      if (matchMedia('(max-width: 600px), (max-aspect-ratio: 85/100)').matches) set(false); })();
+  </script>
   <script type="module" src="./src/main.js"></script>
 </body>
 </html>
