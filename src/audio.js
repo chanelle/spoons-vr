@@ -30,5 +30,6 @@ export const sfx = {
   flare: () => { tone(90, 0.9, { type: 'sawtooth', gain: 0.07 }); tone(1400, 0.5, { gain: 0.03, slide: -900 }); },
   rest: () => tone(440, 0.9, { gain: 0.06, slide: 220 }),
   borrow: () => { tone(520, 0.2, { gain: 0.07 }); tone(390, 0.3, { gain: 0.06, delay: 0.12 }); },
+  chime: () => { tone(880, 0.6, { gain: 0.06 }); tone(1320, 0.8, { gain: 0.04, delay: 0.15 }); },
   reject: () => tone(180, 0.15, { type: 'square', gain: 0.04 }),
 };

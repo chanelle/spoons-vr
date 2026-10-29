@@ -40,8 +40,9 @@ test('bent spoons cannot pay; rest straightens them first', () => {
   s.spoons[0].bent = true;
   const d = s.active[0];
   assert.equal(G.pay(s, d.id, s.spoons[0].id)[0].type, 'reject');
-  const ev = G.rest(s, G.REST_SECONDS);
-  assert.equal(ev[0].type, 'straightened');
+  let ev = [];
+  for (let i = 0; i < 400 && !ev.some((e) => e.type === 'straightened'); i++) ev = G.rest(s, 0.5);
+  assert.ok(ev.some((e) => e.type === 'straightened'));
   assert.equal(s.spoons[0].bent, false);
 });
 
@@ -50,8 +51,11 @@ test('rest recovers up to max only', () => {
   G.step(s, 15);
   const d = s.active[0];
   G.pay(s, d.id, s.spoons[0].id);
-  assert.equal(G.rest(s, G.REST_SECONDS)[0].type, 'recovered');
-  assert.equal(G.rest(s, G.REST_SECONDS)[0].type, 'rested-full');
+  const seen = new Set();
+  for (let i = 0; i < 2000; i++) for (const e of G.rest(s, 0.5)) seen.add(e.type);
+  assert.ok(seen.has('recovered'));
+  assert.ok(seen.has('rested-full'));
+  assert.ok(s.spoons.length <= s.maxSpoons);
 });
 
 test('borrowing costs tomorrow with interest, deferred work carries over', () => {
@@ -84,4 +88,19 @@ test('clock runs 8 AM to 10 PM', () => {
   assert.equal(G.clock(s), '8:00 AM');
   s.t = G.DAY_SECONDS;
   assert.equal(G.clock(s), '10:00 PM');
+});
+
+test('rest is a gamble: varied cycle lengths and some cycles give nothing', () => {
+  const s = G.createDay({ seed: 21, read: 'red' });
+  G.step(s, 15);
+  const needs = new Set(); let nothing = 0, cycles = 0;
+  for (let i = 0; i < 200; i++) {
+    needs.add(G.restNeed(s).toFixed(2));
+    let ev = [];
+    while (!ev.length) ev = G.rest(s, 0.25);
+    cycles++;
+    if (ev[0].type === 'rest-nothing') nothing++;
+  }
+  assert.ok(needs.size > 20, 'cycle length varies');
+  assert.ok(nothing > cycles * 0.4 && nothing < cycles * 0.75, `misses ${nothing}/${cycles}`);
 });

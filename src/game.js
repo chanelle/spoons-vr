@@ -169,23 +169,38 @@ export function drop(s, demandId) {
 }
 
 // Call every frame while the player holds the rest pillow. Time keeps moving.
+// Rest is a gamble: each cycle takes a different amount of time, and sometimes it
+// just doesn't help. Worse days make rest less reliable.
+export const REST_ODDS = { green: 0.7, yellow: 0.55, red: 0.42 };
+export function restNeed(s) {
+  if (!s.restNeed) s.restNeed = REST_SECONDS * (0.65 + s.rnd() * 0.9); // ~4 to ~9 seconds
+  return s.restNeed;
+}
 export function rest(s, dt) {
   if (s.phase !== 'play') return [];
   s.restProgress += dt;
-  if (s.restProgress < REST_SECONDS) return [];
+  if (s.restProgress < restNeed(s)) return [];
   s.restProgress = 0;
+  s.restNeed = 0;
   s.rested += 1;
-  const bent = s.spoons.find((x) => x.bent);
-  if (bent) { bent.bent = false; return [{ type: 'straightened', spoonId: bent.id }]; }
-  if (s.spoons.length < s.maxSpoons) {
-    const sp = { id: `s${s.nextSpoonId++}`, bent: false };
-    s.spoons.push(sp);
-    return [{ type: 'recovered', spoonId: sp.id }];
+  const roll = s.rnd();
+  if (roll > (REST_ODDS[s.read] ?? 0.55)) { s.restMisses = (s.restMisses || 0) + 1; return [{ type: 'rest-nothing' }]; }
+  const ev = [];
+  const gains = roll < 0.1 ? 2 : 1; // now and then rest gives back more than you asked
+  for (let i = 0; i < gains; i++) {
+    const bent = s.spoons.find((x) => x.bent);
+    if (bent) { bent.bent = false; ev.push({ type: 'straightened', spoonId: bent.id }); continue; }
+    if (s.spoons.length < s.maxSpoons) {
+      const sp = { id: `s${s.nextSpoonId++}`, bent: false };
+      s.spoons.push(sp);
+      ev.push({ type: 'recovered', spoonId: sp.id });
+    }
   }
-  return [{ type: 'rested-full' }];
+  return ev.length ? ev : [{ type: 'rested-full' }];
 }
 
 export function stopRest(s) { s.restProgress = 0; }
+export const restFraction = (s) => s.restProgress / restNeed(s);
 
 // Pull a spoon from tomorrow. Always works. Always costs.
 export function borrow(s) {
@@ -215,6 +230,7 @@ export function summary(s) {
     dropped: s.dropped.length,
     joy,
     rested: s.rested,
+    restMisses: s.restMisses || 0,
     borrowed: s.borrowed,
     owed,
     consequences: mustMissed.map((d) => d.miss),

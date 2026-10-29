@@ -378,3 +378,31 @@ export function makeStars(n = 700) {
   p.raycast = () => {};
   return p;
 }
+
+// Day timeline: 8 AM to 10 PM with a glowing sun that travels across it.
+export function drawDayBar(p, frac, clockText) {
+  const key = `${Math.round(frac * 400)}|${clockText}`;
+  if (key === p.key) return;
+  p.key = key;
+  const ctx = p.ctx, W = p.W, H = p.H;
+  ctx.clearRect(0, 0, W, H);
+  glassSlab(ctx, W, H, 44, null);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = C.text;
+  ctx.font = '800 88px system-ui, sans-serif';
+  ctx.shadowColor = frac > 0.8 ? C.must : C.amber; ctx.shadowBlur = 24;
+  ctx.fillText(clockText, W / 2, 118);
+  ctx.shadowBlur = 0;
+  const x0 = 70, x1 = W - 70, y = H - 64;
+  roundRect(ctx, x0, y - 7, x1 - x0, 14, 7); ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fill();
+  const grad = ctx.createLinearGradient(x0, 0, x1, 0);
+  grad.addColorStop(0, C.amber); grad.addColorStop(0.6, C.lavender); grad.addColorStop(1, C.must);
+  roundRect(ctx, x0, y - 7, Math.max(14, (x1 - x0) * frac), 14, 7); ctx.fillStyle = grad; ctx.fill();
+  ctx.font = '600 28px system-ui, sans-serif'; ctx.fillStyle = C.dim;
+  [['8a', 0], ['noon', 4 / 14], ['4p', 8 / 14], ['8p', 12 / 14], ['10p', 1]].forEach(([t, f]) => ctx.fillText(t, x0 + (x1 - x0) * f, y + 46));
+  const sx = x0 + (x1 - x0) * frac;
+  ctx.shadowColor = C.amber; ctx.shadowBlur = 30; ctx.fillStyle = '#fff3d6';
+  ctx.beginPath(); ctx.arc(sx, y, 16, 0, Math.PI * 2); ctx.fill();
+  ctx.shadowBlur = 0; ctx.textAlign = 'left';
+  p.update();
+}

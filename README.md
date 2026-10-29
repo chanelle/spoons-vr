@@ -18,10 +18,10 @@ Entry for the [Meta VR Start Developer Competition 2026](https://start-developer
 |---|---|
 | ![Morning body check](docs/morning.png) | **Morning.** Pinch Good-ish, Careful or Flare. You start with 12, 8 or 5 spoons. If you borrowed yesterday, you start short. |
 | ![Tasks floating above the tray](docs/play.png) | **The day.** Tasks arrive labeled MUST, SHOULD or WANT, each with a cost and a timer. Pinch a spoon and drop it on a task to pay. Pinch a task and toss it onto **Tomorrow** or into **Let go**. Ignore it and it expires. |
-| ![A flare has bent spoons](docs/flare.png) | **Flares.** Random and unannounced. Bent spoons can't pay for anything. Hold the pillow to rest: it straightens them or gives one back, and the clock keeps running while you do. |
+| ![A flare has bent spoons](docs/flare.png) | **Flares.** Random and unannounced. Bent spoons can't pay for anything. Hold the pillow to rest, but rest is a gamble: every rest takes a different amount of time, and sometimes nothing comes back. On a flare day it helps less often. The clock keeps running the whole time. |
 | ![End of day summary](docs/end.png) | **10 PM.** What got done, what moved, what you missed and what it cost. Deferred tasks come back the next morning. Borrowed spoons come due at double. |
 
-One day takes about seven minutes. Each date has its own fixed day of tasks and flares, so tomorrow is always a new run.
+A day takes about seven minutes. A big clock and a sun crossing the day bar show time slipping away, with chimes at noon, 3, 6, 8 and 9 PM. Each date has its own fixed day of tasks and flares, so tomorrow is always a new run.
 
 ## Why hands
 

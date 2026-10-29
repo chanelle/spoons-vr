@@ -51,16 +51,16 @@ const LAYOUTS = {
   wide: {
     tray: [0, -0.36, -0.36], slots: [[-0.235, -0.1, -0.47], [0, -0.06, -0.5], [0.235, -0.1, -0.47]],
     shelf: [-0.43, -0.31, -0.3], bowl: [0.43, -0.34, -0.3], pillow: [0.27, -0.36, -0.19], jar: [-0.27, -0.39, -0.19],
-    hud: [0, 0.17, -0.62], big: [0, 0.0, -0.53], orbY: -0.17, orbGap: 0.14, shelfRot: 0.6, cardScale: 1,
+    hud: [0, 0.1, -0.62], big: [0, 0.0, -0.53], orbY: -0.17, orbGap: 0.14, shelfRot: 0.6, cardScale: 1,
     labels: { shelf: [0, 0.15, 0], bowl: [0, 0.09, 0], pillow: [0, -0.06, 0.03], jar: [0, 0.125, 0] },
-    view: { c: [0, -0.17, -0.4], hw: 0.6, hh: 0.41 },
+    view: { c: [0, -0.11, -0.42], hw: 0.6, hh: 0.47 },
   },
   tall: {
-    tray: [0, -0.34, -0.4], slots: [[0, 0.13, -0.52], [0, -0.045, -0.51], [0, -0.22, -0.5]],
+    tray: [0, -0.34, -0.4], slots: [[0, 0.09, -0.52], [0, -0.07, -0.51], [0, -0.23, -0.5]],
     shelf: [-0.13, -0.57, -0.38], bowl: [0.13, -0.58, -0.38], pillow: [0.13, -0.76, -0.33], jar: [-0.13, -0.78, -0.33],
-    hud: [0, 0.27, -0.6], big: [0, 0.0, -0.53], orbY: -0.2, orbGap: 0.13, shelfRot: 0.2, cardScale: 1.3,
+    hud: [0, 0.31, -0.6], big: [0, 0.0, -0.53], orbY: -0.2, orbGap: 0.13, shelfRot: 0.2, cardScale: 1.15,
     labels: { shelf: [0, 0.15, 0], bowl: [0, 0.09, 0], pillow: [0, 0.085, 0], jar: [0, 0.125, 0] },
-    view: { c: [0, -0.25, -0.45], hw: 0.27, hh: 0.58 },
+    view: { c: [0, -0.16, -0.47], hw: 0.27, hh: 0.7 },
   },
 };
 const L = {
@@ -99,6 +99,7 @@ const jar = A.makeJar(); root.add(jar);
 reg('jar', jar, 'jar', 0.07);
 const jarLabel = A.makeLabel('BORROW', 0.13, A.C.amber); root.add(jarLabel);
 const hud = new A.Panel(0.4, 0.075, 1024); root.add(hud.mesh);
+const dayBar = new A.Panel(0.34, 0.085, 1024); root.add(dayBar.mesh);
 const big = new A.Panel(0.46, 0.27, 1024); root.add(big.mesh);
 
 function applyLayout(name, force = false) {
@@ -117,6 +118,7 @@ function applyLayout(name, force = false) {
   pillowLabel.position.copy(L.pillow).add(lo('pillow'));
   jar.position.copy(L.jar); jarLabel.position.copy(L.jar).add(lo('jar'));
   hud.mesh.position.copy(L.hud);
+  dayBar.mesh.position.copy(L.hud).add(new V(0, 0.085, -0.005));
   big.mesh.position.copy(L.big);
   for (const v of cardViews.values()) { v.home.copy(L.slots[v.slot]); v.m.scale.setScalar(L.cardScale); }
   orbs.forEach((o) => { o.mesh.position.set(o.idx * L.orbGap, L.orbY, -0.44); o.label.position.set(o.idx * L.orbGap, L.orbY - 0.055, -0.44); });
@@ -211,7 +213,7 @@ function showEnd(sum) {
   const lines = [
     { text: '10:00 PM. The day is over.', size: 54, weight: 600, serif: true, gap: 8 },
     { text: `Done ${sum.done}  ·  Tomorrow ${sum.tomorrow}  ·  Missed ${sum.missed}  ·  Let go ${sum.dropped}`, size: 36 },
-    { text: `Joy ${sum.joy}  ·  Rested ${sum.rested}x${sum.borrowed ? `  ·  Borrowed ${sum.borrowed} (owe ${sum.owed})` : ''}`, size: 36, gap: 8 },
+    { text: `Joy ${sum.joy}  ·  Rested ${sum.rested}x${sum.restMisses ? ` (${sum.restMisses} did nothing)` : ''}${sum.borrowed ? `  ·  Borrowed ${sum.borrowed} (owe ${sum.owed})` : ''}`, size: 36, gap: 8 },
     ...sum.consequences.slice(0, 3).map((t) => ({ text: t, size: 32, color: A.C.must })),
     { text: sum.selah, size: 38, italic: true, serif: true, color: A.C.mint },
   ];
@@ -303,6 +305,7 @@ function handle(evs) {
       case 'straightened': { const v = spoonViews.get(e.spoonId); if (v) A.setBent(v.m, false); sfx.rest(); say('A spoon straightened out.'); break; }
       case 'recovered': { addSpoon(s.spoons.find((x) => x.id === e.spoonId), L.pillow.clone()); layoutTray(); sfx.rest(); say('Rest gave one back.'); break; }
       case 'rested-full': say('Tray is full. Resting anyway counts.'); break;
+      case 'rest-nothing': sfx.missed(); say(['Rested. Nothing came back this time.', 'You rested. Your body did not get the memo.', 'Rest did not help. It still counted.'][s.rested % 3]); break;
       case 'borrowed': { addSpoon(s.spoons.find((x) => x.id === e.spoonId), L.jar.clone().add(new V(0, 0.05, 0))); layoutTray(); sfx.borrow(); say(`Borrowed from tomorrow. It costs ${G.BORROW_INTEREST} back.`); break; }
       case 'end':
         for (const id of [...cardViews.keys()]) retireCard(id, 'tomorrow');
@@ -499,6 +502,8 @@ setupXR();
 // ---------- frame loop ----------
 const clock = new THREE.Clock();
 let hudTimer = 0;
+let lastHour = null;
+const CHIMES = { 12: 'Noon. Half the day is gone.', 15: '3 PM. The afternoon dip.', 18: '6 PM. Evening already.', 20: '8 PM. Two hours left.', 21: '9 PM. Last hour.' };
 renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.1);
   now += dt;
@@ -518,7 +523,7 @@ renderer.setAnimationLoop(() => {
   if (mode === 'play' && !paused) {
     handle(G.step(s, dt));
     const resting = [...pointers.values()].some((p) => p.held === pillowE && p.pinch);
-    if (resting && mode === 'play') { handle(G.rest(s, dt)); A.setRing(ring, s.restProgress / G.REST_SECONDS); }
+    if (resting && mode === 'play') { handle(G.rest(s, dt)); A.setRing(ring, G.restFraction(s)); }
     pillow.scale.y += ((resting ? 0.7 : 1) - pillow.scale.y) * Math.min(1, dt * 10);
   }
 
@@ -564,7 +569,7 @@ renderer.setAnimationLoop(() => {
   }
   for (const o of orbs) o.mesh.position.y = L.orbY + Math.sin(now * 2 + o.idx * 2) * 0.004;
   aurora.userData.update(now);
-  root.traverse((o) => { if (o.userData.label || o === hud.mesh || o === big.mesh) faceHead(o); });
+  root.traverse((o) => { if (o.userData.label || o === hud.mesh || o === big.mesh || o === dayBar.mesh) faceHead(o); });
 
   // HUD
   hudTimer -= dt;
@@ -572,11 +577,20 @@ renderer.setAnimationLoop(() => {
     hudTimer = 0.2;
     const lines = [];
     if (mode === 'play') {
-      lines.push({ text: `${G.clock(s)}   ·   ${G.usableSpoons(s)} spoon${G.usableSpoons(s) === 1 ? '' : 's'} usable${s.spoons.length > G.usableSpoons(s) ? `, ${s.spoons.length - G.usableSpoons(s)} bent` : ''}${paused ? '   ·   paused' : ''}`, size: 46, weight: 600 });
+      lines.push({ text: `${G.usableSpoons(s)} spoon${G.usableSpoons(s) === 1 ? '' : 's'} usable${s.spoons.length > G.usableSpoons(s) ? `, ${s.spoons.length - G.usableSpoons(s)} bent` : ''}${paused ? '   ·   paused' : ''}`, size: 46, weight: 600 });
     } else if (mode === 'read') lines.push({ text: 'SPOONS', size: 56, weight: 800, color: A.C.mint });
     else lines.push({ text: 'SPOONS', size: 56, weight: 800, color: A.C.mint });
     if (toast.until > now) lines.push({ text: toast.text, size: 38, color: A.C.mint });
     hud.mesh.visible = mode === 'play' || toast.until > now;
+    dayBar.mesh.visible = mode === 'play';
+    if (mode === 'play') {
+      A.drawDayBar(dayBar, Math.min(1, s.t / G.DAY_SECONDS), G.clock(s));
+      const hour = Math.floor(8 + (s.t / G.DAY_SECONDS) * 14);
+      if (hour !== lastHour) {
+        if (lastHour !== null && CHIMES[hour]) { say(CHIMES[hour], 3); sfx.chime(); }
+        lastHour = hour;
+      }
+    } else lastHour = null;
     A.drawText(hud, lines);
   }
 
