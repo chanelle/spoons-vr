@@ -1,0 +1,38 @@
+<title>SPOONS</title>
+  <meta name="claude:viewport-fit-sides" content="cover">
+  <meta name="description" content="A seated, hands-first game about spending your energy. Spoon theory you can hold.">
+  <style>
+    /* Single dark game world: canvas fills the frame, one floating card. */
+    :root { --cream:#f3eee3; --ink:#2b2a26; --olive:#6b6f3a; --amber:#d9a441; --ground:#24211c; color-scheme: dark; }
+    html, body { margin:0; height:100%; background:var(--ground); overflow:hidden; font-family: system-ui, sans-serif; }
+    canvas { display:block; touch-action:none; }
+    #card { position:fixed; left:max(16px, calc(env(safe-area-inset-left, 0px) + 16px)); top:calc(env(safe-area-inset-top, 0px) + 16px); max-width:340px; background:rgba(243,238,227,.94); color:var(--ink);
+      border-radius:16px; padding:16px 18px; box-shadow:0 8px 30px rgba(0,0,0,.35); }
+    #card h1 { margin:0 0 4px; font: 800 26px system-ui; color:var(--olive); letter-spacing:.06em; }
+    #card p { margin:6px 0; font-size:14px; line-height:1.4; }
+    #card ul { margin:6px 0 10px; padding-left:18px; font-size:13px; line-height:1.45; }
+    #enter { width:100%; padding:12px; border:0; border-radius:10px; background:var(--olive); color:var(--cream);
+      font: 700 15px system-ui; cursor:pointer; }
+    #enter:disabled { background:#9a9a86; cursor:default; }
+    #credit { font-size:11px; opacity:.7; }
+    body.in-xr #card { display:none; }
+    body.playing #card p, body.playing #card ul { display:none; }
+    body.playing #card { padding:10px 14px; max-width:260px; }
+    body.playing #card h1 { font-size:18px; }
+    @media (max-width: 520px) { #card { right:max(16px, calc(env(safe-area-inset-right, 0px) + 16px)); max-width:none; } }
+    #enter:focus-visible { outline: 3px solid var(--amber); outline-offset: 2px; }
+  </style>
+  <script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
+<div id="card">
+    <h1>SPOONS</h1>
+    <p>You get a tray of spoons each morning. Everything costs some. Spend them, save them, or borrow from tomorrow.</p>
+    <ul>
+      <li>Pinch a spoon, drop it on a task to pay.</li>
+      <li>Pinch a task, toss it to <b>Tomorrow</b> or <b>Let go</b>.</li>
+      <li>Hold the pillow to rest. Time keeps moving.</li>
+      <li>Flares bend spoons. Rest straightens them.</li>
+    </ul>
+    <button id="enter" disabled>Checking for XR…</button>
+    <p id="credit">Spoon theory by Christine Miserandino. Built by Chanelle Henry.</p>
+  </div>
+  <script type="module" src="./src/main.js"></script>
