@@ -1,28 +1,39 @@
 // SPOONS: hands-first seated WebXR game. Spend your spoons, survive the day.
+// Runs on Meta's Immersive Web SDK (IWSDK): the World owns the renderer, the XR session,
+// the render loop and XR input. Game rules (game.js), art and audio are unchanged.
+import { World, SessionMode, ReferenceSpaceType, createSystem } from '@iwsdk/core';
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import * as G from './game.js';
 import * as A from './art.js';
 import { sfx, unlockAudio } from './audio.js';
-import { RoomEnvironment } from '../vendor/RoomEnvironment.js';
 
 const V = THREE.Vector3;
 const tmp = new V(), tmp2 = new V();
 
-// ---------- renderer / scene ----------
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+// ---------- IWSDK world: renderer / scene / XR ----------
+// Passthrough first (immersive-ar), then VR, then desktop. Decided before the world is built
+// because IWSDK creates a transparent canvas only for AR worlds.
+const xrSupported = async (m) => !!navigator.xr && navigator.xr.isSessionSupported(m).catch(() => false);
+const xrMode = (await xrSupported('immersive-ar')) ? SessionMode.ImmersiveAR : (await xrSupported('immersive-vr')) ? SessionMode.ImmersiveVR : null;
+
+const world = await World.create(document.body, {
+  xr: xrMode
+    ? { sessionMode: xrMode, offer: 'none', referenceSpace: ReferenceSpaceType.LocalFloor, features: { handTracking: true } }
+    : false,
+  render: { fov: 50, near: 0.01, far: 30 },
+  input: { canvasPointerEvents: false }, // desktop mouse play is handled below, as before
+  features: { locomotion: false, grabbing: false, physics: false, spatialUI: false }, // seated; pinch logic is SPOONS' own
+});
+const { renderer, scene, camera, player } = world;
+const xrInput = world.input.xr;
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.xr.enabled = true;
-renderer.xr.setReferenceSpaceType('local-floor');
-document.body.appendChild(renderer.domElement);
-
-const scene = new THREE.Scene();
+if (xrMode !== SessionMode.ImmersiveAR) renderer.setClearColor(0x07061a, 1); // page ground colour (canvas is opaque outside AR)
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.95;
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.01, 30);
 scene.add(new THREE.HemisphereLight(0xd6d0ff, 0x140c28, 0.7));
 const sun = new THREE.DirectionalLight(0xfff4ea, 1.3);
 sun.position.set(0.4, 2.5, 0.8);
@@ -37,13 +48,13 @@ const aurora = A.makeAurora();
 const floorGrid = A.makeFloorGrid();
 floorGrid.position.y = 0.002;
 sky.add(aurora, floorGrid, A.makeStars());
-scene.add(sky);
+world.createTransformEntity(sky); // IWSDK entity in the active level
 
 // Everything lives in `root`, positioned at the player's eyes. Seated, two-foot radius.
 const root = new THREE.Group();
 const DESK_ROOT = new V(0, 1.2, 0);
+world.createTransformEntity(root); // IWSDK entity in the active level
 root.position.copy(DESK_ROOT);
-scene.add(root);
 
 // Two layouts. "wide" is the headset and landscape layout: everything within ~60 cm.
 // "tall" stacks things for portrait phones and narrow windows.
@@ -323,47 +334,59 @@ function pointer(id, kind) {
   return pointers.get(id);
 }
 
-const hands = [0, 1].map((i) => { const h = renderer.xr.getHand(i); scene.add(h); return h; });
+// XR input comes from IWSDK's input manager (world.input.xr), one source per hand.
+// IWSDK's own hand/controller models and ray pointers stay off: SPOONS shows your real hands
+// in passthrough plus one small dot at the pinch point, and loads no assets from the network.
+const SIDES = ['left', 'right'];
+const noVisual = { loadGLTF: async () => ({ scene: new THREE.Group() }) };
+for (const h of SIDES) {
+  for (const kind of ['hand', 'controller']) {
+    const ad = xrInput.visualAdapters[kind][h];
+    ad.toggleVisual(false);
+    ad.assetLoader = noVisual;
+  }
+  xrInput.multiPointers[h].toggleSubPointer('ray', false);
+}
 const tipMat = new THREE.MeshBasicMaterial({ color: 0xf3eee3 });
-const handDots = hands.map(() => {
+const handDots = SIDES.map(() => {
   const d = new THREE.Mesh(new THREE.SphereGeometry(0.008, 12, 8), tipMat.clone());
   d.visible = false; scene.add(d); return d;
 });
-const controllers = [0, 1].map((i) => {
-  const c = renderer.xr.getControllerGrip(i);
-  c.userData.select = false;
-  c.addEventListener('connected', (ev) => { c.userData.source = ev.data; });
-  c.addEventListener('disconnected', () => { c.userData.source = null; });
-  scene.add(c);
-  const ray = renderer.xr.getController(i);
-  ray.addEventListener('selectstart', () => { c.userData.select = true; });
-  ray.addEventListener('selectend', () => { c.userData.select = false; });
-  scene.add(ray);
-  return c;
-});
 
-function updateXRPointers() {
-  hands.forEach((h, i) => {
+const jointB = new V();
+function jointWorld(frame, refSpace, joint, out) {
+  const pose = frame.getJointPose ? frame.getJointPose(joint, refSpace) : null;
+  if (!pose) return false;
+  const q = pose.transform.position;
+  player.localToWorld(out.set(q.x, q.y, q.z));
+  return true;
+}
+
+function updateXRPointers(frame) {
+  const presenting = renderer.xr.isPresenting;
+  const refSpace = presenting ? renderer.xr.getReferenceSpace() : null;
+  SIDES.forEach((h, i) => {
+    // hands: pinch = thumb tip to index tip distance, pointer = the midpoint
     const p = pointer(`hand${i}`, 'hand');
-    const it = h.joints && h.joints['index-finger-tip'];
-    const th = h.joints && h.joints['thumb-tip'];
-    p.active = !!(it && th && it.visible !== false && renderer.xr.isPresenting);
+    const ad = xrInput.visualAdapters.hand[h];
+    p.active = !!(presenting && frame && refSpace && xrInput.isPrimary('hand', h) && ad.indexTip && ad.thumbTip
+      && jointWorld(frame, refSpace, ad.indexTip, tmp) && jointWorld(frame, refSpace, ad.thumbTip, jointB));
     handDots[i].visible = p.active;
-    if (!p.active) { p.pinch = false; return; }
-    const a = it.getWorldPosition(tmp), b = th.getWorldPosition(new V());
-    const dist = a.distanceTo(b);
-    p.pos.copy(a).add(b).multiplyScalar(0.5);
-    p.pinch = p.pinch ? dist < 0.04 : dist < 0.02; // hysteresis
-    handDots[i].position.copy(p.pos);
-    handDots[i].material.color.set(p.pinch ? 0xd9a441 : 0xf3eee3);
-  });
-  controllers.forEach((c, i) => {
-    const p = pointer(`ctrl${i}`, 'ctrl');
-    const src = c.userData.source;
-    p.active = !!(src && !src.hand && renderer.xr.isPresenting);
-    if (!p.active) { p.pinch = false; return; }
-    c.getWorldPosition(p.pos);
-    p.pinch = c.userData.select;
+    if (!p.active) p.pinch = false;
+    else {
+      const dist = tmp.distanceTo(jointB);
+      p.pos.copy(tmp).add(jointB).multiplyScalar(0.5);
+      p.pinch = p.pinch ? dist < 0.04 : dist < 0.02; // hysteresis
+      handDots[i].position.copy(p.pos);
+      handDots[i].material.color.set(p.pinch ? 0xd9a441 : 0xf3eee3);
+    }
+    // controllers: trigger = pinch, pointer = the grip
+    const c = pointer(`ctrl${i}`, 'ctrl');
+    const pad = xrInput.gamepads[h];
+    c.active = !!(presenting && xrInput.isPrimary('controller', h) && pad);
+    if (!c.active) { c.pinch = false; return; }
+    player.gripSpaces[h].getWorldPosition(c.pos);
+    c.pinch = pad.getSelecting();
   });
 }
 
@@ -457,59 +480,66 @@ function release(p) {
   }
 }
 
-// ---------- XR session ----------
+// ---------- XR session (IWSDK launches and owns it) ----------
 const btn = document.getElementById('enter');
-let xrMode = null, needsRecenter = false, xrFrames = 0;
-async function setupXR() {
-  if (!navigator.xr) { btn.textContent = 'Desktop mode: drag with your mouse'; btn.disabled = true; return; }
-  const ar = await navigator.xr.isSessionSupported('immersive-ar').catch(() => false);
-  const vr = await navigator.xr.isSessionSupported('immersive-vr').catch(() => false);
-  xrMode = ar ? 'immersive-ar' : vr ? 'immersive-vr' : null;
+let needsRecenter = false, xrFrames = 0, launching = false, refit = 0;
+function setupXR() {
   if (!xrMode) { btn.textContent = 'Desktop mode: drag with your mouse'; btn.disabled = true; return; }
-  btn.textContent = ar ? 'Enter with your hands (passthrough)' : 'Enter VR with your hands';
-  btn.onclick = async () => {
+  btn.textContent = xrMode === SessionMode.ImmersiveAR ? 'Enter with your hands (passthrough)' : 'Enter VR with your hands';
+  btn.disabled = false;
+  btn.onclick = () => {
     unlockAudio();
-    try {
-      const session = await navigator.xr.requestSession(xrMode, { optionalFeatures: ['local-floor', 'hand-tracking'] });
-      session.addEventListener('visibilitychange', () => { paused = session.visibilityState !== 'visible'; });
-      session.addEventListener('end', onSessionEnd);
-      await renderer.xr.setSession(session);
-      applyLayout('wide', true);
-      if (xrMode === 'immersive-ar') { sky.visible = false; renderer.setClearColor(0x000000, 0); }
-      needsRecenter = true; xrFrames = 0;
-      document.body.classList.add('in-xr');
-    } catch (err) { console.warn('[SPOONS] XR failed', err); btn.textContent = 'Could not start XR. Desktop mode is on.'; }
+    if (world.session || world.sessionRequestPending) return;
+    world.launchXR();
+    launching = true;
   };
+  renderer.xr.addEventListener('sessionstart', onSessionStart);
+  renderer.xr.addEventListener('sessionend', onSessionEnd);
+}
+function onSessionStart() {
+  applyLayout('wide', true);
+  if (xrMode === SessionMode.ImmersiveAR) { sky.visible = false; renderer.setClearColor(0x000000, 0); }
+  needsRecenter = true; xrFrames = 0;
+  document.body.classList.add('in-xr');
 }
 function onSessionEnd() {
   sky.visible = true;
   root.position.copy(DESK_ROOT);
   root.rotation.set(0, 0, 0);
-  L.name = '';
-  fitCamera();
+  refit = 3; // IWSDK restores the desktop camera a frame after the session ends; re-frame once it has
   paused = false;
   document.body.classList.remove('in-xr');
 }
 function recenter() {
-  const xrCam = renderer.xr.getCamera();
-  const pos = new V().setFromMatrixPosition(xrCam.matrixWorld);
-  const dir = new V(0, 0, -1).applyQuaternion(new THREE.Quaternion().setFromRotationMatrix(xrCam.matrixWorld));
+  // IWSDK keeps the viewer pose on player.head
+  const pos = player.head.getWorldPosition(new V());
+  const dir = new V(0, 0, -1).applyQuaternion(player.head.getWorldQuaternion(new THREE.Quaternion()));
   root.position.copy(pos);
   root.rotation.set(0, Math.atan2(-dir.x, -dir.z), 0);
 }
 setupXR();
 
 // ---------- frame loop ----------
-const clock = new THREE.Clock();
 let hudTimer = 0;
 let lastHour = null;
 const CHIMES = { 12: 'Noon. Half the day is gone.', 15: '3 PM. The afternoon dip.', 18: '6 PM. Evening already.', 20: '8 PM. Two hours left.', 21: '9 PM. Last hour.' };
-renderer.setAnimationLoop(() => {
-  const dt = Math.min(clock.getDelta(), 0.1);
+// One IWSDK system runs the whole game each frame. It runs after IWSDK's InputSystem,
+// so hand and controller poses are fresh; IWSDK renders the scene afterwards.
+class SpoonsSystem extends createSystem() {
+  update(delta) { frame(Math.min(delta, 0.1), this.xrFrame); }
+}
+function frame(dt, xrFrame) {
   now += dt;
-  if (renderer.xr.isPresenting && needsRecenter && ++xrFrames > 3) { recenter(); needsRecenter = false; }
+  const presenting = renderer.xr.isPresenting;
+  if (presenting && needsRecenter && ++xrFrames > 3) { recenter(); needsRecenter = false; }
+  if (presenting) paused = world.visibilityState.value !== 'visible'; // headset off or system menu up
+  if (launching && !world.sessionRequestPending) {
+    launching = false;
+    if (!world.session) btn.textContent = 'Could not start XR. Desktop mode is on.';
+  }
+  if (!presenting && refit > 0 && --refit === 0) { L.name = ''; fitCamera(); }
 
-  updateXRPointers();
+  updateXRPointers(presenting ? xrFrame : null);
   updateMousePointer();
 
   // press / release edges
@@ -593,18 +623,14 @@ renderer.setAnimationLoop(() => {
     } else lastHour = null;
     A.drawText(hud, lines);
   }
+}
 
-  renderer.render(scene, camera);
-});
-
-addEventListener('resize', () => {
-  renderer.setSize(innerWidth, innerHeight);
-  fitCamera();
-});
+addEventListener('resize', () => fitCamera()); // IWSDK resizes the renderer; this re-frames the table
 document.addEventListener('visibilitychange', () => { if (!renderer.xr.isPresenting) paused = document.hidden; });
 
 fitCamera();
 showRead();
+world.registerSystem(SpoonsSystem);
 
 // test hook (used by the headless smoke test)
-window.__spoons = { get s() { return s; }, get mode() { return mode; }, G, startDay, handle, grabs, camera, root, pointers, scene, sky, renderer };
+window.__spoons = { get s() { return s; }, get mode() { return mode; }, get paused() { return paused; }, G, startDay, handle, grabs, camera, root, pointers, scene, sky, renderer, world };

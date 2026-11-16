@@ -35,28 +35,30 @@ Spoon theory: [Christine Miserandino](https://butyoudontlooksick.com/articles/wr
 - **Airplane seat test.** Everything sits within about 60 cm of your head. The layout is placed in front of you wherever you sit.
 - **Bus stop test.** A full day takes about seven minutes, and the game pauses when you take the headset off.
 - **Passthrough first.** It runs in your real room via `immersive-ar` and falls back to VR, then to desktop.
+- **Built on IWSDK (WebXR).** Meta's Immersive Web SDK owns the world, the XR session, the render loop and hand and controller input.
 - **Take-it-away test.** No AI service and no third-party API. Every asset is procedural: spoons, cards and sound are generated in code, so it starts instantly.
 
 ## Run it locally
 
-No build step and no install.
+This branch (`iwsdk-port`) runs on Meta's [Immersive Web SDK](https://www.npmjs.com/package/@iwsdk/core) and has a small build step. Node 20.19+ or 22.12+.
 
 ```bash
-python3 -m http.server 8765
-# open http://localhost:8765
+npm ci
+npm run dev      # https://localhost:8081 with the IWSDK emulator (IWER) built in
+npm run build    # static site in dist/, host it anywhere over HTTPS
 ```
 
-Quest needs HTTPS, so use the GitHub Pages link or any static host.
+Quest needs HTTPS. See `HANDOFF.md` for headset preview, test results and what is left to submit.
 
 ## Code
 
 | File | What it does |
 |---|---|
 | `src/game.js` | Rules: seeded days, costs, flares, rest, borrowing, carry-over. No rendering. |
-| `src/main.js` | Scene, pinch detection from hand joints, controllers, mouse, XR session, recentering |
+| `src/main.js` | IWSDK world and system, scene, pinch detection from hand joints, controllers, mouse, XR session, recentering |
 | `src/art.js` | Procedural spoons, tray, cards and labels (canvas textures) |
 | `src/audio.js` | Synthesized sounds (Web Audio) |
-| `vendor/` | three.js r170 (MIT) |
+| `vite.config.js` | Vite build with the IWSDK dev plugin (emulator). IWSDK and three.js come from npm |
 
 ```bash
 npm test                         # rules tests

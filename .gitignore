@@ -1,1 +1,4 @@
 artifact.html
+node_modules
+dist
+.iwsdk
